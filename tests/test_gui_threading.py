@@ -25,10 +25,12 @@ class FakeController:
         self.stop_requested = threading.Event()
         self.fail = fail
         self.run_thread = None
-        self.calls = []
+        self.calls = []  # (minutes, run_benchmarks, quick), the legacy shape
+        self.modes = []  # mode passed to each run_session call
         self._running = threading.Lock()
         self._state = {
             "status": "idle",
+            "mode": "benchmarked",
             "message": "",
             "elapsed": 0.0,
             "session_elapsed": 0.0,
@@ -58,14 +60,17 @@ class FakeController:
             )  # like Controller.snapshot(): live, not per-task
         return snap
 
-    def run_session(self, minutes, run_benchmarks=True, quick=False):
+    def run_session(
+        self, minutes, run_benchmarks=True, quick=False, mode="benchmarked"
+    ):  # same signature as Controller.run_session
         if not self._running.acquire(blocking=False):
             raise SessionBusy("A session is already running")
         try:
             self.run_thread = threading.current_thread()
             self._t0 = self.clock() if self.clock else None
             self.calls.append((minutes, run_benchmarks, quick))
-            self._state.update(status="running", message="thinking")
+            self.modes.append(mode)
+            self._state.update(status="running", mode=mode, message="thinking")
             self.entered.set()
             while not (self.release.is_set() or self.stop_requested.is_set()):
                 time.sleep(0.01)
@@ -115,6 +120,19 @@ def test_presenter_accepts_every_allowed_duration(minutes):
     assert p.start(minutes) is None
     p.worker.join(5)
     assert c.calls == [(minutes, True, False)]
+
+
+def test_presenter_legacy_start_is_benchmarked_and_self_improve_is_not():
+    c = FakeController()
+    c.release.set()
+    p = Presenter(c)
+    assert p.start(2) is None
+    p.worker.join(5)
+    assert c.modes == ["benchmarked"] and p.view()["mode"] == "benchmarked"
+    assert p.self_improve(20) is None
+    p.worker.join(5)
+    assert c.calls[-1] == (20, False, False)
+    assert c.modes[-1] == "self_improve" and p.view()["mode"] == "self_improve"
 
 
 @pytest.mark.parametrize("minutes", [1, 3, 7, 60])
