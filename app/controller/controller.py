@@ -103,6 +103,7 @@ class Controller:
         self._wait = sleep or (lambda s: self._stop.wait(s))
         self.last_summary: dict | None = None
         self._loop_end_reason = "deadline"
+        self._loop_started: float | None = None   # clock() when the learning phase began; None outside it
 
     # ------------------------------------------------------------------ state / events
     def add_listener(self, cb: Callable[[dict], None]) -> None:
@@ -110,7 +111,12 @@ class Controller:
 
     def snapshot(self) -> dict[str, Any]:
         with self._state_lock:
-            return copy.deepcopy(self._state.__dict__)
+            snap = copy.deepcopy(self._state.__dict__)
+            if self._loop_started is not None:
+                # Live learning-phase time (the loop only refreshes `elapsed` between tasks, so it would freeze
+                # during a long model call). Never reported above the planned limit.
+                snap["elapsed"] = max(0.0, min(self.clock() - self._loop_started, self._state.planned_minutes * 60))
+            return snap
 
     def _set(self, **kw: Any) -> None:
         with self._state_lock:
@@ -313,6 +319,13 @@ class Controller:
 
     def _learning_loop(self, sid: int, minutes: float, errors: list[str]) -> float:
         start = self.clock()
+        self._loop_started = start
+        try:
+            return self._learning_loop_body(sid, minutes, errors, start)
+        finally:
+            self._loop_started = None
+
+    def _learning_loop_body(self, sid: int, minutes: float, errors: list[str], start: float) -> float:
         deadline = start + minutes * 60
         time_left = lambda: deadline - self.clock()
         should_abort = lambda: self._stop.is_set() or self.clock() >= deadline
