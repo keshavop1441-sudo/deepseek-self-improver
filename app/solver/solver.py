@@ -25,10 +25,10 @@ FATAL = (OllamaUnavailable, ModelNotAvailable)
 @dataclass(frozen=True)
 class CallBudget:
     """Per-call budget for learning-loop model calls (Self Improve). Mirrors the Config fields of the same name."""
-    call_share: float = 0.5
+    call_share: float = 0.8
     min_call_seconds: float = 20.0
     min_tokens: int = 256
-    assumed_tokens_per_second: float = 18.0
+    assumed_tokens_per_second: float = 23.0
 
 
 def measured_tokens_per_second(raw: Any) -> float | None:

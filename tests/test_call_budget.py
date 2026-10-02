@@ -99,13 +99,15 @@ def test_client_num_predict_default_and_override():
 @pytest.mark.parametrize(
     "remaining,timeout,expected",
     [
-        (120.0, 300.0, 60.0),  # share applied
+        (120.0, 300.0, 96.0),  # 2-minute session: 80% share
+        (30.0, 300.0, 24.0),  # share above the floor
         (1000.0, 300.0, 300.0),  # request_timeout cap
-        (30.0, 300.0, 20.0),  # floor, still below remaining
+        (25.0, 300.0, 20.0),  # floor (20 > 25*0.8), still below remaining
         (15.0, 300.0, 15.0),  # below min_call_seconds: use what remains
         (0.0, 300.0, 0.0),
         (-5.0, 300.0, 0.0),
         (120.0, 40.0, 40.0),
+        (100.0, 300.0, 80.0),
     ],
 )
 def test_wall_budget(tmp_path, remaining, timeout, expected):
@@ -118,15 +120,15 @@ def test_solve_passes_budget_as_request_timeout(tmp_path):
     fake = MeteredOllama(["6"])
     _, solver, t = make(tmp_path, fake)
     assert solver.solve(t, 1, NEVER, lambda: 120.0).status == "verified"
-    assert fake.timeouts == [60.0]
+    assert fake.timeouts == [96.0]
 
 
 # ---------------------------------------------------------------- C. token cap
 def test_token_cap_formula_and_clamps(tmp_path):
     _, solver, _ = make(tmp_path, FakeOllama())
     assert (
-        solver.call_token_cap(60.0, 1) == math.floor(60 * 18.0) == 1080
-    )  # first call: assumed rate
+        solver.call_token_cap(96.0, 1) == math.floor(96 * 23.0) == 2208
+    )  # first call: assumed rate (2-minute session)
     assert solver.call_token_cap(1000.0, 1) == 3072  # clamped to configured num_predict
     assert solver.call_token_cap(1.0, 1) == 256  # clamped up to min_tokens
     assert solver.call_token_cap(0.0, 1) == 256 and solver.call_token_cap(-3, 1) == 256
@@ -134,7 +136,7 @@ def test_token_cap_formula_and_clamps(tmp_path):
     assert (
         solver.call_token_cap(60.0, 1) == math.floor(60 * 23.5) == 1410
     )  # measured rate
-    assert solver.call_token_cap(60.0, 2) == 1080  # another session: back to assumed
+    assert solver.call_token_cap(60.0, 2) == 1380  # another session: back to assumed
 
 
 def test_token_cap_with_num_predict_below_min_tokens(tmp_path):
@@ -165,21 +167,21 @@ def test_measured_rate_guards(raw, expected):
 
 
 def test_rate_measured_from_returned_call_only_and_invalid_falls_back(tmp_path):
-    # remaining is constant 40 s -> wall 20 s. Call 1: no measurement yet (assumed 18 tok/s).
-    # Call 2 follows a usable 23 tok/s reading; call 3 follows invalid metadata, so it keeps 23; call 4 follows 10 tok/s.
+    # remaining is constant 40 s -> wall 32 s. Call 1: no measurement yet (assumed 23 tok/s).
+    # Call 2 follows a usable 15 tok/s reading; call 3 follows invalid metadata, so it keeps 15; call 4 follows 10.
     fake = MeteredOllama(
         ["7", "7", "7", "6"],
-        meta=[eval_meta(2300, 100), {"eval_count": 0}, eval_meta(100, 10), {}],
+        meta=[eval_meta(1500, 100), {"eval_count": 0}, eval_meta(100, 10), {}],
     )
     _, solver, t = make(tmp_path, fake)
     out = solver.solve(t, 1, NEVER, lambda: 40.0)
     assert out.status == "verified"
     assert fake.predicts == [
-        math.floor(20 * 18.0),
-        math.floor(20 * 23.0),
-        math.floor(20 * 23.0),
-        256,
-    ]  # 20*10=200 -> min_tokens
+        math.floor(32 * 23.0),
+        math.floor(32 * 15.0),
+        math.floor(32 * 15.0),
+        math.floor(32 * 10.0),
+    ]
     assert solver._rate == (1, 10.0)
 
 
@@ -206,9 +208,9 @@ def test_retry_budget_and_tokens_shrink_with_remaining_time(tmp_path):
     _, solver, t = make(tmp_path, fake)
     out = solver.solve(t, 1, NEVER, lambda: 120.0 - clock["t"])
     assert out.status == "verified" and out.retries == 3
-    # remaining 120, 90, 60, 30 -> wall 60, 45, 30, 20 (floor, still <= remaining); rate 23 tok/s once measured
-    assert fake.timeouts == [60.0, 45.0, 30.0, 20.0]
-    assert fake.predicts == [1080, 1035, 690, 460]
+    # remaining 120, 90, 60, 30 -> wall 96, 72, 48, 24 (80%); rate 23 tok/s assumed, then measured 23
+    assert fake.timeouts == [96.0, 72.0, 48.0, 24.0]
+    assert fake.predicts == [2208, 1656, 1104, 552]
     assert fake.predicts == sorted(fake.predicts, reverse=True)
 
 
@@ -256,7 +258,7 @@ def test_config_defaults():
         c.min_call_seconds,
         c.min_tokens,
         c.assumed_tokens_per_second,
-    ) == (0.5, 20.0, 256, 18.0)
+    ) == (0.8, 20.0, 256, 23.0)
     assert (c.request_timeout, c.num_predict) == (300.0, 3072)
     assert CallBudget() == CallBudget(
         c.call_share, c.min_call_seconds, c.min_tokens, c.assumed_tokens_per_second
@@ -287,8 +289,8 @@ def test_controller_passes_config_budget_and_session_calls_are_capped(
     preds = [p["options"]["num_predict"] for p in fake.chat_calls]
     assert rep["stop_reason"] == "deadline" and preds
     assert preds[0] == math.floor(
-        60 * 18.0
-    )  # 120 s window -> 60 s share at the assumed rate
+        96 * 23.0
+    )  # 120 s window -> 96 s (80%) at the assumed 23 tok/s = 2208
     assert all(1 <= p <= 3072 for p in preds) and preds == sorted(preds, reverse=True)
     assert (
         rep["attempted"]
