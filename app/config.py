@@ -53,6 +53,12 @@ class Config:
     num_ctx: int = 4096
     num_predict: int = 3072
     temperature: float = 0.2
+    # Self Improve per-call budget: each learning-loop model call gets a share of the REMAINING session time
+    # (never more than remains) and a generation-token cap derived from it. Benchmarks are not affected.
+    call_share: float = 0.5
+    min_call_seconds: float = 20.0
+    min_tokens: int = 256
+    assumed_tokens_per_second: float = 18.0
     max_retries: int = MAX_RETRIES
     lessons_per_prompt: int = 3
     http_timeout: float = 20.0

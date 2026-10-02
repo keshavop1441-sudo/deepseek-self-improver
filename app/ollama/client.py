@@ -109,8 +109,8 @@ class OllamaClient:
     # -- chat --------------------------------------------------------------
     def chat(self, messages: list[dict], think: bool = False, timeout: float | None = None,
              should_abort: Callable[[], bool] | None = None, temperature: float | None = None,
-             seed: int | None = None) -> ChatResult:
-        """Single non-streaming chat call.
+             seed: int | None = None, num_predict: int | None = None) -> ChatResult:
+        """Single non-streaming chat call. `num_predict=None` uses the client's configured cap.
 
         Runs the transport in a worker thread so STOP/deadline (`should_abort`) and the hard
         `timeout` are honoured even while Ollama is mid-generation.
@@ -118,8 +118,11 @@ class OllamaClient:
         timeout = self.request_timeout if timeout is None else timeout
         if timeout <= 0:
             raise OllamaTimeout("No time budget left for this request")
+        if num_predict is not None and num_predict <= 0:
+            raise ValueError("num_predict must be positive")
         options: dict[str, Any] = {"temperature": self.temperature if temperature is None else temperature,
-                                   "num_ctx": self.num_ctx, "num_predict": self.num_predict}
+                                   "num_ctx": self.num_ctx,
+                                   "num_predict": self.num_predict if num_predict is None else num_predict}
         if seed is not None:
             options["seed"] = seed
         payload: dict[str, Any] = {"model": self.model, "messages": messages, "stream": False,

@@ -31,7 +31,7 @@ from app.ollama.client import (
     OllamaUnavailable,
 )
 from app.reporting.report import build_report, write_reports
-from app.solver.solver import FATAL, Solver
+from app.solver.solver import FATAL, CallBudget, Solver
 from app.storage.db import Storage, now_iso
 from app.training import dataset as training_dataset
 from app.training.hardware import detect_hardware
@@ -130,6 +130,12 @@ class Controller:
             self.config.max_retries,
             self.config.lessons_per_prompt,
             self.config.request_timeout,
+            CallBudget(
+                self.config.call_share,
+                self.config.min_call_seconds,
+                self.config.min_tokens,
+                self.config.assumed_tokens_per_second,
+            ),
         )
         self.bench = BenchmarkRunner(
             self.solver, self.memory, self.storage, self.client.model
