@@ -161,3 +161,55 @@ def test_real_clock_deadline_cuts_off_hung_request(make_controller):
     rep = box["rep"]
     assert rep["status"] == "completed" and rep["stop_reason"] == "deadline" and rep["failed"] == 0
     assert [r[0] for r in c.storage._conn.execute("SELECT status FROM tasks")] == ["pending"]
+
+
+def test_elapsed_zero_before_session_and_live_during_blocked_call(make_controller):
+    clock = FakeClock()
+    fake = HangingOllama(ok_calls=0)
+    c, _, _ = make_controller(fake, clock=clock)
+    assert c.snapshot()["elapsed"] == 0.0
+    t, box = run_in_thread(c)
+    assert fake.hanging.wait(5)
+    assert c.snapshot()["elapsed"] == 0.0 and c.snapshot()["attempted"] == 0
+    clock.advance(7)
+    assert c.snapshot()["elapsed"] == 7                   # advances with no task completed
+    clock.advance(5)
+    assert c.snapshot()["elapsed"] == 12
+    clock.advance(LIMIT * 5)
+    assert c.snapshot()["elapsed"] == LIMIT               # capped at the selected duration
+    finish(t, box, fake)
+    assert c.snapshot()["elapsed"] == LIMIT and Presenter(c).view()["elapsed"] == "00:02:00"
+
+
+def test_benchmarks_excluded_from_elapsed_and_final_value_stable(make_controller):
+    clock = FakeClock()
+    seen = []
+    box = {}
+
+    def on_chat(n):
+        clock.advance(10)
+        s = box["c"].snapshot()
+        seen.append((s["status"], s["elapsed"]))
+    fake = FakeOllama(make_oracle(wrong_first_gcd=False), on_chat=on_chat)
+    c, _, _ = make_controller(fake, clock=clock)
+    box["c"] = c
+    rep = c.run_session(MINUTES, run_benchmarks=True, quick_benchmark=True)
+    before = [e for st, e in seen if st == "benchmark_before"]
+    assert before and all(e == 0.0 for e in before)       # timer not started during the before-benchmark
+    assert max(e for _, e in seen) <= LIMIT
+    assert rep["duration_seconds"] == LIMIT               # before/after benchmark time not added
+    assert c.snapshot()["elapsed"] == LIMIT
+
+
+def test_final_elapsed_after_stop_is_learning_time_only(make_controller):
+    clock = FakeClock()
+    fake = HangingOllama(ok_calls=0)
+    c, _, _ = make_controller(fake, clock=clock)
+    t, box = run_in_thread(c)
+    assert fake.hanging.wait(5)
+    clock.advance(42)
+    c.stop()
+    rep = finish(t, box, fake)
+    assert rep["stop_reason"] == "stopped" and c.snapshot()["elapsed"] == 42
+    clock.advance(100)
+    assert c.snapshot()["elapsed"] == 42                  # frozen once the learning phase ends

@@ -339,7 +339,7 @@ class Controller:
         self._loop_end_reason = "deadline"
         consecutive_no_task = 0
         while True:
-            self._set(elapsed=self.clock() - start)
+            self._set(elapsed=min(self.clock() - start, minutes * 60))
             if self._stop.is_set():
                 self._loop_end_reason = "stopped"
                 break
@@ -372,8 +372,9 @@ class Controller:
                 self._loop_end_reason = "error"
                 break
             self._record_outcome(outcome, errors)
-        self._set(elapsed=min(self.clock() - start, minutes * 60 if self._loop_end_reason == "deadline" else self.clock() - start))
-        return self.snapshot()["elapsed"]
+        final = min(self.clock() - start, minutes * 60)   # learning phase only, never above the selected duration
+        self._set(elapsed=final)
+        return final
 
     def _emit(self, kind: str, **kw: Any) -> None:
         if kind == "retry":
