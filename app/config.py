@@ -7,7 +7,7 @@ from pathlib import Path
 
 DEFAULT_MODEL = "deepseek-r1:1.5b"
 DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
-ALLOWED_DURATIONS = (20, 30, 45)
+ALLOWED_DURATIONS = (2, 20, 30, 45)
 MAX_RETRIES = 3
 
 DOMAINS = (

@@ -23,7 +23,7 @@ requires one and may return 403 otherwise; the adapter then just falls back to o
 
 ```
 python -m app.main doctor            # checks python/sympy/tkinter/db/Ollama/model/hardware
-python -m app.main run --minutes 30  # headless session (GUI offers 20/30/45)
+python -m app.main run --minutes 30  # headless session (GUI offers 2/20/30/45)
 python -m app.main benchmark         # fixed 35-task benchmark (add --quick for the 12-task subset)
 python -m app.main stats
 python -m app.main lessons [--domain statistics]

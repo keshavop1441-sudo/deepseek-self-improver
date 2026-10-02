@@ -185,11 +185,11 @@ def test_gui_presenter_drives_shared_controller(make_controller):
     fake = FakeOllama(make_oracle(wrong_first_gcd=False), on_chat=lambda n: clock.advance(10))
     c, _, _ = make_controller(fake, clock=clock)
     p = Presenter(c)
-    assert p.start(7) is not None                        # only 20/30/45 are valid in the GUI
+    assert p.start(7) is not None                        # only 2/20/30/45 are valid in the GUI
     v0 = p.view()
     assert v0["model"] == "deepseek-r1:1.5b" and v0["start_enabled"] and not v0["stop_enabled"]
     assert p.start(20, quick_benchmark=True, run_benchmarks=False) is None
-    c._thread.join(10)
+    p.worker.join(10)
     v = p.view()
     assert v["status"] == "completed" and v["verified"] >= 1 and v["lessons"] >= 1 and v["report"].endswith(".md")
     assert v["start_enabled"] and not v["stop_enabled"] and v["failed"] == 0
@@ -200,7 +200,7 @@ def test_gui_start_error_reports_preflight(make_controller):
     c, _, _ = make_controller(FakeOllama(up=False))
     p = Presenter(c)
     assert p.start(20) is None
-    c._thread.join(5)
+    p.worker.join(5)
     v = p.view()
     assert v["status"] == "error" and "not reachable" in v["message"]
 
