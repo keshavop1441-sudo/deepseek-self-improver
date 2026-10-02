@@ -3,11 +3,13 @@
 Regression for a real run (probability task, verifier recorded `arithmetic: 1`, deadline hit during the retry)
 that reported attempted=0, failed=0, retries=0.
 
-Invariant: attempted == verified + failed + invalid + pending. A task counts as attempted once at least one model
-attempt completed and was recorded. A task whose first model call was still in flight when the deadline hit has no
-verifier result, so it is not counted and adds nothing to failure_categories. Invalid (unusable) tasks are the one
-case where failure_categories gets a `missing_data` entry for a task that is *not* a model failure; they are still
-counted as attempted + invalid, so failure_categories never shows a failure for a task the report calls unattempted.
+Invariant: attempted == verified + failed + invalid + pending. A task counts as attempted once a model call was
+handed out for it (SolveOutcome.started), even when that call was still in flight at the deadline/stop and produced no
+recorded attempt: it is then attempted + pending (never verified/failed/invalid) and the session errors carry a note
+"model call started but not finished". A task aborted before any model call is not counted at all. Invalid (unusable)
+tasks are the one case where failure_categories gets a `missing_data` entry for a task that is *not* a model failure;
+they are still counted as attempted + invalid, so failure_categories never shows a failure for a task the report calls
+unattempted.
 """
 
 import threading
@@ -111,6 +113,7 @@ def test_real_run_pattern_deadline_during_retry_is_pending_not_failed(
     c, rep = run_until_deadline(make_controller, stop)
     # attempt 0 was verified wrong (arithmetic); retry 1 was handed to the model and cut off
     assert rep["failure_categories"] == {"arithmetic": 1}
+    assert any("completed attempts before the cut-off: 1" in e for e in rep["errors"])
     assert rep["attempted"] == 1 and rep["pending_tasks"] == 1
     assert rep["failed"] == 0 and rep["verified"] == 0 and rep["invalid_tasks"] == 0
     assert rep["retries"] == 1
@@ -130,9 +133,8 @@ def test_real_run_pattern_deadline_during_retry_is_pending_not_failed(
     )
 
 
-def test_first_call_cut_off_is_not_attempted_and_has_no_failure_category(
-    make_controller,
-):
+def test_first_call_cut_off_is_attempted_pending_with_note(make_controller):
+    """Session-7 pattern: the first model call never returns before the deadline."""
     clock = FakeClock()
     fake = WrongThenHang()
     fake.chat_calls.append({})  # every real chat call hangs (first one included)
@@ -148,11 +150,22 @@ def test_first_call_cut_off_is_not_attempted_and_has_no_failure_category(
     t.join(5)
     fake.unblock.set()
     rep = box["rep"]
+    assert rep["attempted"] == rep["pending_tasks"] == 1
     assert (
-        rep["attempted"] == rep["pending_tasks"] == rep["retries"] == rep["failed"] == 0
+        rep["retries"] == rep["failed"] == rep["verified"] == rep["invalid_tasks"] == 0
     )
-    assert rep["failure_categories"] == {}
+    assert rep["failure_categories"] == {}  # no verifier result exists for this task
+    assert rep["domains"] == {"probability": {"verified": 0, "failed": 0}}
+    assert (
+        len(rep["errors"]) == 1
+        and "model call started but not finished (deadline reached)" in rep["errors"][0]
+    )
+    assert "completed attempts before the cut-off: 0" in rep["errors"][0]
     assert_consistent(rep)
+    assert [r[0] for r in c.storage._conn.execute("SELECT status FROM tasks")] == [
+        "pending"
+    ]
+    assert c.storage._conn.execute("SELECT COUNT(*) FROM attempts").fetchone()[0] == 0
 
 
 def solve_scripted(make_controller, answers):
@@ -183,6 +196,10 @@ def test_verifier_failure_then_retry_success_counts_retry_and_verified(make_cont
         "arithmetic": 1
     }  # corrected failure stays recorded, consistent with attempted
     assert s["domains"]["probability"] == {"verified": 1, "failed": 0}
+    assert (
+        s["pending"] == 0
+        and s["attempted"] == s["verified"] + s["failed"] + s["invalid"] + s["pending"]
+    )
 
 
 def test_exhausted_retries_counts_failed_and_all_retries(make_controller):
@@ -223,11 +240,25 @@ def test_invalid_task_is_not_a_model_failure(make_controller):
     }  # data-validation entry, attempted counted: consistent
 
 
-def test_aborted_outcome_without_attempts_changes_nothing(make_controller):
+def test_aborted_outcome_with_started_call_and_no_attempt_is_pending(make_controller):
     c, _, _ = make_controller(FakeOllama(), adapters=[ProbabilityAdapter()])
     task = ProbabilityAdapter().discover(None)[0]
     c.storage.insert_task(task)
-    c._record_outcome(SolveOutcome(task=task, status="aborted"), [])
+    errors = []
+    c._record_outcome(SolveOutcome(task=task, status="aborted", started=1), errors)
     s = c.snapshot()
+    assert (s["attempted"], s["pending"], s["retries"]) == (1, 1, 0)
+    assert (s["verified"], s["failed"], s["invalid"]) == (0, 0, 0)
+    assert len(errors) == 1 and "model call started but not finished" in errors[0]
+
+
+def test_aborted_outcome_without_started_call_changes_nothing(make_controller):
+    c, _, _ = make_controller(FakeOllama(), adapters=[ProbabilityAdapter()])
+    task = ProbabilityAdapter().discover(None)[0]
+    c.storage.insert_task(task)
+    errors = []
+    c._record_outcome(SolveOutcome(task=task, status="aborted"), errors)
+    s = c.snapshot()
+    assert errors == []
     assert (s["attempted"], s["pending"], s["retries"], s["failed"]) == (0, 0, 0, 0)
     assert s["failure_categories"] == {}

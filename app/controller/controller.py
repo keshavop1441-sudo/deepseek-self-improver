@@ -586,12 +586,11 @@ class Controller:
                 s.failure_categories[cat] = s.failure_categories.get(cat, 0) + 1
             s.retries += outcome.retries
             if st == "aborted":
-                # Invariant: attempted == verified + failed + invalid + pending. A task cut off while its
-                # first model call was still in flight has no recorded attempt, so it is not counted at all.
-                # Once at least one attempt completed and was recorded (and possibly verifier-failed, which
-                # feeds failure_categories above) the task was really attempted; it stays pending because
-                # the deadline stopped it before a final verified/failed verdict.
-                if outcome.attempts:
+                # Invariant: attempted == verified + failed + invalid + pending. A task is attempted once a
+                # model call was handed out for it (outcome.started), even if that call was still in flight
+                # when the deadline/stop hit and so produced no recorded attempt. It stays pending: it is
+                # neither verified, failed nor invalid. A task aborted before any model call is not counted.
+                if outcome.started:
                     s.attempted += 1
                     s.pending += 1
             elif st == "verified":
@@ -616,6 +615,16 @@ class Controller:
             "aborted": "pending",
         }
         self.storage.set_task_status(task.task_id, status_map[st])
+        if st == "aborted" and outcome.started:
+            why = "stopped by the user" if self._stop.is_set() else "deadline reached"
+            note = (
+                f"task {task.task_id} [{task.domain}] pending: model call started but not finished "
+                f"({why}); completed attempts before the cut-off: {len(outcome.attempts)}, "
+                f"retries started: {outcome.retries}"
+            )
+            log.info(note)
+            if note not in errors:
+                errors.append(note)
         if st == "verified":
             lid = learn_from_outcome(self.memory, outcome)
             if lid:

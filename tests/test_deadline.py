@@ -53,7 +53,10 @@ def test_deadline_aborts_inflight_request_and_reports_completed_deadline(make_co
     clock.advance(LIMIT)                                  # deadline arrives mid-generation
     rep = finish(t, box, fake)
     assert rep["status"] == "completed" and rep["stop_reason"] == "deadline"
-    assert rep["verified"] == 1 and rep["failed"] == 0 and rep["attempted"] == 1
+    # the second task's model call was in flight at the deadline: attempted + pending, not verified/failed
+    assert rep["verified"] == 1 and rep["failed"] == 0 and rep["invalid_tasks"] == 0
+    assert rep["pending_tasks"] == 1 and rep["attempted"] == 2
+    assert any("model call started but not finished (deadline reached)" in e for e in rep["errors"])
     assert rep["duration_seconds"] <= LIMIT + 1
 
 

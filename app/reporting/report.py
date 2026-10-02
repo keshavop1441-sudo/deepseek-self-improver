@@ -64,7 +64,7 @@ def to_markdown(r: dict[str, Any]) -> str:
          f"- Tasks attempted: **{r['attempted']}**", f"- Independently verified correct: **{r['verified']}**",
          f"- Failed after retries: **{r['failed']}**", f"- Retries used: **{r['retries']}**",
          f"- Tasks with unusable data (not counted against the model): {r['invalid_tasks']}",
-         f"- Tasks cut off by the deadline/stop (pending, neither verified nor failed): {r['pending_tasks']}",
+         f"- Pending: model call started but cut off by the deadline/stop (neither verified nor failed): {r['pending_tasks']}",
          f"- Lessons learned (verified only): **{r['lessons_learned']}**", "",
          "## Domains", ""]
     m += [f"- {d}: {c['verified']} verified / {c['failed']} failed" for d, c in sorted(r["domains"].items())] or ["_none_"]
