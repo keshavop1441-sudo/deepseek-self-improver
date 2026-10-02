@@ -31,6 +31,7 @@ class FakeController:
             "status": "idle",
             "message": "",
             "elapsed": 0.0,
+            "session_elapsed": 0.0,
             "attempted": 0,
             "verified": 0,
             "failed": 0,
@@ -416,5 +417,41 @@ def test_gui_elapsed_stringvar_advances_with_real_controller_while_blocked(
         shown.append(app.vars["elapsed"].get())
     assert shown == ["00:00:01", "00:00:02", "00:00:03", "00:00:04"]
     assert app.pres.worker.is_alive and app.vars["status"].get() == "running"
+    _finish_session(app.pres, fake)
+    app.refresh_once()
+
+
+def test_gui_shows_session_and_learning_elapsed_with_real_controller(
+    root, make_controller
+):
+    from app.gui.app import LABELS
+    from tests.helpers import FakeClock
+    from tests.test_session_elapsed import SlowPreflightHanging
+
+    assert ("Session elapsed", "session_elapsed") in LABELS and (
+        "Learning elapsed",
+        "elapsed",
+    ) in LABELS
+    clock = FakeClock()
+    fake = SlowPreflightHanging(ok_calls=0)
+    fake.clock = clock
+    c, _, _ = make_controller(fake, clock=clock)
+    app = make_app(root, c)
+    app.refresh_once()
+    assert app.vars["session_elapsed"].get() == app.vars["elapsed"].get() == "00:00:00"
+    assert app.pres.start(2, run_benchmarks=False) is None
+    assert fake.hanging.wait(5)
+    shown = []
+    for _ in range(3):
+        app.refresh_once()  # the exact call GuiApp.refresh() makes every tick
+        root.update()
+        shown.append((app.vars["session_elapsed"].get(), app.vars["elapsed"].get()))
+        clock.advance(1)
+    assert shown == [
+        ("00:00:03", "00:00:00"),
+        ("00:00:04", "00:00:01"),
+        ("00:00:05", "00:00:02"),
+    ]
+    assert app.pres.worker.is_alive
     _finish_session(app.pres, fake)
     app.refresh_once()

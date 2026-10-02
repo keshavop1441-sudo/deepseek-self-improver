@@ -1,4 +1,5 @@
 """Toolkit-independent GUI logic (testable without Tk). The Tk window only renders what this returns."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -28,12 +29,16 @@ class Presenter:
         self.last_error: str | None = None
         self.finished = False
 
-    def start(self, minutes: int, quick_benchmark: bool = False, run_benchmarks: bool = True) -> str | None:
+    def start(
+        self, minutes: int, quick_benchmark: bool = False, run_benchmarks: bool = True
+    ) -> str | None:
         """Returns an error string for the UI or None on success."""
         if minutes not in ALLOWED_DURATIONS:
             return f"Duration must be one of {ALLOWED_DURATIONS}"
         try:
-            self.worker.start(minutes, run_benchmarks, quick_benchmark)  # returns immediately; work is off-thread
+            self.worker.start(
+                minutes, run_benchmarks, quick_benchmark
+            )  # returns immediately; work is off-thread
         except SessionBusy as e:
             return str(e)
         self.last_error, self.finished = None, False
@@ -70,14 +75,28 @@ class Presenter:
             if self.last_error not in errors:
                 errors.append(self.last_error)
             message = self.last_error
-        # snapshot()["elapsed"] is the live learning-phase time, capped at the planned limit.
+        # snapshot()["elapsed"] is the live learning-phase time, capped at the planned limit;
+        # snapshot()["session_elapsed"] is the live whole-session time (preflight .. report).
         elapsed = s["elapsed"]
         return {
-            "model": self.c.client.model, "status": status, "message": message,
-            "elapsed": fmt_elapsed(elapsed), "attempted": s["attempted"], "verified": s["verified"],
-            "failed": s["failed"], "retries": s["retries"], "lessons": s["lessons"],
-            "task": s["current_task"], "domain": s["current_domain"],
-            "bench_before": fmt_bench(before), "bench_after": fmt_bench(after), "bench_delta": delta,
-            "bench_progress": s["benchmark_progress"], "start_enabled": not busy, "stop_enabled": busy,
-            "report": s["report_paths"][-1] if s["report_paths"] else "", "errors": errors,
+            "model": self.c.client.model,
+            "status": status,
+            "message": message,
+            "elapsed": fmt_elapsed(elapsed),
+            "session_elapsed": fmt_elapsed(s["session_elapsed"]),
+            "attempted": s["attempted"],
+            "verified": s["verified"],
+            "failed": s["failed"],
+            "retries": s["retries"],
+            "lessons": s["lessons"],
+            "task": s["current_task"],
+            "domain": s["current_domain"],
+            "bench_before": fmt_bench(before),
+            "bench_after": fmt_bench(after),
+            "bench_delta": delta,
+            "bench_progress": s["benchmark_progress"],
+            "start_enabled": not busy,
+            "stop_enabled": busy,
+            "report": s["report_paths"][-1] if s["report_paths"] else "",
+            "errors": errors,
         }
