@@ -15,7 +15,9 @@ from app.gui.presenter import Presenter
 class FakeController:
     """Blocks inside run_session until released, like a long DeepSeek call; records the calling thread."""
 
-    def __init__(self, fail: Exception | None = None):
+    def __init__(self, fail: Exception | None = None, clock=None):
+        self.clock = clock
+        self._t0 = None
         self.client = SimpleNamespace(model="fake-model")
         self.release = threading.Event()
         self.entered = threading.Event()
@@ -33,13 +35,17 @@ class FakeController:
         return self._running.locked()
 
     def snapshot(self):
-        return dict(self._state)
+        snap = dict(self._state)
+        if self.clock is not None and self._t0 is not None and self.is_running:
+            snap["elapsed"] = self.clock() - self._t0   # like Controller.snapshot(): live, not per-task
+        return snap
 
     def run_session(self, minutes, run_benchmarks=True, quick=False):
         if not self._running.acquire(blocking=False):
             raise SessionBusy("A session is already running")
         try:
             self.run_thread = threading.current_thread()
+            self._t0 = self.clock() if self.clock else None
             self.calls.append((minutes, run_benchmarks, quick))
             self._state.update(status="running", message="thinking")
             self.entered.set()
@@ -116,8 +122,9 @@ def test_start_returns_immediately_and_runs_off_main_thread():
 
 
 def test_elapsed_advances_while_worker_blocked():
-    c, clock = FakeController(), Clock()
-    p = Presenter(c, clock=clock)
+    clock = Clock()
+    c = FakeController(clock=clock)
+    p = Presenter(c)
     p.start(2)
     assert c.entered.wait(5)
     seen = []
@@ -189,9 +196,9 @@ def pump(root, seconds):
         time.sleep(0.005)
 
 
-def make_app(root, controller, clock=None):
+def make_app(root, controller):
     from app.gui.app import GuiApp
-    app = GuiApp(root, Presenter(controller, clock=clock) if clock else Presenter(controller))
+    app = GuiApp(root, Presenter(controller))
     root.update()
     return app
 
@@ -206,8 +213,9 @@ def test_gui_shows_two_as_selectable_duration(root):
 
 
 def test_gui_start_does_not_block_event_loop_and_elapsed_updates(root):
-    c, clock = FakeController(), Clock()
-    app = make_app(root, c, clock)
+    clock = Clock()
+    c = FakeController(clock=clock)
+    app = make_app(root, c)
     ticks = []
     root.after(20, lambda: ticks.append(1))
     t0 = time.monotonic()

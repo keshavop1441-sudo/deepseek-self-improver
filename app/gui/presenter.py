@@ -1,8 +1,6 @@
 """Toolkit-independent GUI logic (testable without Tk). The Tk window only renders what this returns."""
 from __future__ import annotations
 
-import time
-from collections.abc import Callable
 from typing import Any
 
 from app.config import ALLOWED_DURATIONS
@@ -24,11 +22,9 @@ def fmt_bench(b: dict | None) -> str:
 
 
 class Presenter:
-    def __init__(self, controller: Controller, clock: Callable[[], float] = time.monotonic):
+    def __init__(self, controller: Controller):
         self.c = controller
         self.worker = SessionWorker(controller)
-        self._clock = clock
-        self._started_at: float | None = None
         self.last_error: str | None = None
         self.finished = False
 
@@ -41,7 +37,6 @@ class Presenter:
         except SessionBusy as e:
             return str(e)
         self.last_error, self.finished = None, False
-        self._started_at = self._clock()
         return None
 
     def stop(self) -> None:
@@ -54,7 +49,6 @@ class Presenter:
                 self.last_error = payload
             else:
                 self.finished = True
-            self._started_at = None
 
     @property
     def busy(self) -> bool:
@@ -76,8 +70,8 @@ class Presenter:
             if self.last_error not in errors:
                 errors.append(self.last_error)
             message = self.last_error
-        # Controller elapsed only advances between tasks; while a session runs, show live wall-clock time.
-        elapsed = s["elapsed"] if self._started_at is None else max(s["elapsed"], self._clock() - self._started_at)
+        # snapshot()["elapsed"] is the live learning-phase time, capped at the planned limit.
+        elapsed = s["elapsed"]
         return {
             "model": self.c.client.model, "status": status, "message": message,
             "elapsed": fmt_elapsed(elapsed), "attempted": s["attempted"], "verified": s["verified"],
