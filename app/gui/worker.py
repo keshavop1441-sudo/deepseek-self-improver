@@ -24,17 +24,18 @@ class SessionWorker:
         t = self._thread
         return t is not None and t.is_alive()
 
-    def start(self, minutes: float, run_benchmarks: bool = True, quick_benchmark: bool = False) -> None:
+    def start(self, minutes: float, run_benchmarks: bool = True, quick_benchmark: bool = False,
+              mode: str = "benchmarked") -> None:
         with self._lock:
             if self.is_alive or self.c.is_running:
                 raise SessionBusy("A session is already running")
-            self._thread = threading.Thread(target=self._run, args=(minutes, run_benchmarks, quick_benchmark),
+            self._thread = threading.Thread(target=self._run, args=(minutes, run_benchmarks, quick_benchmark, mode),
                                             name="gui-session-worker", daemon=True)
             self._thread.start()
 
-    def _run(self, minutes: float, run_benchmarks: bool, quick: bool) -> None:
+    def _run(self, minutes: float, run_benchmarks: bool, quick: bool, mode: str = "benchmarked") -> None:
         try:
-            report = self.c.run_session(minutes, run_benchmarks, quick)
+            report = self.c.run_session(minutes, run_benchmarks, quick, mode)
         except Exception as e:  # noqa: BLE001 - every failure must reach the UI
             self.events.put(("error", str(e) or type(e).__name__))
         else:

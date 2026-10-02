@@ -69,6 +69,7 @@ def setup_logging(config: Config) -> None:
 class SessionState:
     status: str = "idle"  # idle|preflight|benchmark_before|running|benchmark_after|reporting|completed|stopped|error
     message: str = "Idle"
+    mode: str = "benchmarked"  # benchmarked|self_improve
     session_id: int | None = None
     planned_minutes: float = 0.0
     elapsed: float = (
@@ -333,7 +334,11 @@ class Controller:
 
     # ------------------------------------------------------------------ session
     def start(
-        self, minutes: float, run_benchmarks: bool = True, quick_benchmark: bool = False
+        self,
+        minutes: float,
+        run_benchmarks: bool = True,
+        quick_benchmark: bool = False,
+        mode: str = "benchmarked",
     ) -> threading.Thread:
         """Run a session in a background thread (GUI). Errors are reported via state."""
         if self.is_running:
@@ -341,7 +346,7 @@ class Controller:
 
         def target() -> None:
             try:
-                self.run_session(minutes, run_benchmarks, quick_benchmark)
+                self.run_session(minutes, run_benchmarks, quick_benchmark, mode)
             except (PreflightError, SessionBusy) as e:
                 self._set(status="error", message=str(e), errors=[str(e)])
             except Exception as e:  # noqa: BLE001
@@ -357,14 +362,30 @@ class Controller:
         if self.is_running:
             self._set(message="Stopping...")
 
+    def self_improve(
+        self,
+        minutes: float,
+        run_benchmarks: bool = False,
+        quick_benchmark: bool = False,
+    ) -> dict[str, Any]:
+        """Autonomous Self Improve mode: the learning loop starts right after preflight and the whole
+        selected duration is learning time. Benchmarks run only when explicitly enabled."""
+        return self.run_session(
+            minutes, run_benchmarks, quick_benchmark, mode="self_improve"
+        )
+
     def run_session(
-        self, minutes: float, run_benchmarks: bool = True, quick_benchmark: bool = False
+        self,
+        minutes: float,
+        run_benchmarks: bool = True,
+        quick_benchmark: bool = False,
+        mode: str = "benchmarked",
     ) -> dict[str, Any]:
         if not self._busy.acquire(blocking=False):
             raise SessionBusy("A session is already running")
         self._session_started = self.clock()
         try:
-            return self._run_session(minutes, run_benchmarks, quick_benchmark)
+            return self._run_session(minutes, run_benchmarks, quick_benchmark, mode)
         finally:
             with self._state_lock:  # freeze the whole-session time in the same step that stops the live clock
                 self._state.session_elapsed = max(
@@ -374,7 +395,11 @@ class Controller:
             self._busy.release()
 
     def _run_session(
-        self, minutes: float, run_benchmarks: bool, quick: bool
+        self,
+        minutes: float,
+        run_benchmarks: bool,
+        quick: bool,
+        mode: str = "benchmarked",
     ) -> dict[str, Any]:
         if minutes <= 0:
             raise ValueError("minutes must be positive")
@@ -384,6 +409,7 @@ class Controller:
                 status="preflight",
                 message="Checking Ollama and model...",
                 planned_minutes=minutes,
+                mode=mode,
             )
         self._set()
         self.recover()

@@ -29,15 +29,27 @@ class Presenter:
         self.last_error: str | None = None
         self.finished = False
 
+    def self_improve(
+        self, minutes: int, run_benchmarks: bool = False, quick_benchmark: bool = False
+    ) -> str | None:
+        """Primary action: autonomous Self Improve. Benchmarks only when explicitly enabled."""
+        return self.start(
+            minutes, quick_benchmark, run_benchmarks, mode="self_improve"
+        )
+
     def start(
-        self, minutes: int, quick_benchmark: bool = False, run_benchmarks: bool = True
+        self,
+        minutes: int,
+        quick_benchmark: bool = False,
+        run_benchmarks: bool = True,
+        mode: str = "benchmarked",
     ) -> str | None:
         """Returns an error string for the UI or None on success."""
         if minutes not in ALLOWED_DURATIONS:
             return f"Duration must be one of {ALLOWED_DURATIONS}"
         try:
             self.worker.start(
-                minutes, run_benchmarks, quick_benchmark
+                minutes, run_benchmarks, quick_benchmark, mode
             )  # returns immediately; work is off-thread
         except SessionBusy as e:
             return str(e)
@@ -81,6 +93,7 @@ class Presenter:
         return {
             "model": self.c.client.model,
             "status": status,
+            "mode": s["mode"],
             "message": message,
             "elapsed": fmt_elapsed(elapsed),
             "session_elapsed": fmt_elapsed(s["session_elapsed"]),

@@ -20,6 +20,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("doctor", help="check Python deps, Ollama, model, database")
     sub.add_parser("ping", help="exit 0 if Ollama is reachable (used by the .bat launcher)")
+    si = sub.add_parser("self-improve", help="autonomous Self Improve: learning starts right after preflight, no benchmarks by default")
+    si.add_argument("--minutes", type=float, default=30, help="actual learning time")
+    si.add_argument("--with-benchmarks", action="store_true", help="optionally run before/after benchmarks around learning")
+    si.add_argument("--quick-benchmark", action="store_true", help="use the fixed 12-task stratified subset (with --with-benchmarks)")
     r = sub.add_parser("run", help="run an autonomous self-improvement session")
     r.add_argument("--minutes", type=float, default=30)
     r.add_argument("--skip-benchmark", action="store_true", help="skip before/after benchmark (no improvement claim)")
@@ -70,9 +74,12 @@ def _dispatch(args: argparse.Namespace, c: Controller) -> int:
         except Exception as e:  # noqa: BLE001
             print(f"Ollama not reachable: {e}", file=sys.stderr)
             return 1
-    if args.cmd == "run":
+    if args.cmd in ("run", "self-improve"):
         c.add_listener(_progress_printer())
-        report = c.run_session(args.minutes, not args.skip_benchmark, args.quick_benchmark)
+        if args.cmd == "self-improve":
+            report = c.self_improve(args.minutes, args.with_benchmarks, args.quick_benchmark)
+        else:
+            report = c.run_session(args.minutes, not args.skip_benchmark, args.quick_benchmark)
         print()
         print(f"Session {report['session_id']} {report['status']}: attempted={report['attempted']} "
               f"verified={report['verified']} failed={report['failed']} retries={report['retries']} "
@@ -125,7 +132,7 @@ def _progress_printer():
     last = {"msg": None}
 
     def cb(s: dict) -> None:
-        line = (f"[{s['status']}] {int(s['elapsed'])}s attempted={s['attempted']} verified={s['verified']} "
+        line = (f"[{s['status']}] session={int(s['session_elapsed'])}s learning={int(s['elapsed'])}s attempted={s['attempted']} verified={s['verified']} "
                 f"failed={s['failed']} retries={s['retries']} lessons={s['lessons']} | {s['message']}")
         if line != last["msg"]:
             last["msg"] = line

@@ -10,13 +10,14 @@ from app.gui.presenter import Presenter
 
 LABELS = [
     ("Model", "model"),
+    ("Mode", "mode"),
     ("Status", "status"),
     ("Session elapsed", "session_elapsed"),
     ("Learning elapsed", "elapsed"),
     ("Current domain", "domain"),
     ("Current task", "task"),
     ("Tasks attempted", "attempted"),
-    ("Verified correct", "verified"),
+    ("Tasks verified", "verified"),
     ("Failed", "failed"),
     ("Retries", "retries"),
     ("Lessons learned", "lessons"),
@@ -53,14 +54,30 @@ class GuiApp:
             rb = ttk.Radiobutton(top, text=str(m), value=m, variable=self.minutes)
             rb.pack(side="left", padx=4)
             self.duration_buttons.append(rb)
-        self.quick = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            top, text="quick benchmark (12 tasks)", variable=self.quick
-        ).pack(side="left", padx=12)
-        self.start_btn = ttk.Button(top, text="START", command=self.on_start)
         self.stop_btn = ttk.Button(top, text="STOP", command=pres.stop)
         self.stop_btn.pack(side="right")
-        self.start_btn.pack(side="right", padx=6)
+        self.self_improve_btn = ttk.Button(
+            top, text="SELF IMPROVE", command=self.on_self_improve
+        )
+        self.self_improve_btn.pack(side="right", padx=6)
+
+        bench = ttk.Frame(frm)
+        bench.pack(fill="x", pady=(6, 0))
+        ttk.Label(bench, text="Optional benchmarks:").pack(side="left")
+        self.measure = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            bench,
+            text="measure before/after during Self Improve",
+            variable=self.measure,
+        ).pack(side="left", padx=6)
+        self.quick = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            bench, text="quick benchmark (12 tasks)", variable=self.quick
+        ).pack(side="left", padx=6)
+        self.start_btn = ttk.Button(
+            bench, text="BENCHMARKED RUN", command=self.on_start
+        )
+        self.start_btn.pack(side="right")
 
         grid = ttk.Frame(frm)
         grid.pack(fill="x", pady=10)
@@ -85,6 +102,13 @@ class GuiApp:
         ttk.Label(frm, textvariable=self.report, wraplength=720).pack(fill="x")
         root.protocol("WM_DELETE_WINDOW", self.on_close)
 
+    def on_self_improve(self) -> None:
+        problem = self.pres.self_improve(
+            self.minutes.get(), self.measure.get(), self.quick.get()
+        )
+        self.err.set(problem or "")
+        self.refresh_once()
+
     def on_start(self) -> None:
         problem = self.pres.start(
             self.minutes.get(), self.quick.get()
@@ -104,6 +128,9 @@ class GuiApp:
         )
         self.report.set(f"Report: {v['report']}" if v["report"] else "")
         self.start_btn.state(["!disabled"] if v["start_enabled"] else ["disabled"])
+        self.self_improve_btn.state(
+            ["!disabled"] if v["start_enabled"] else ["disabled"]
+        )
         self.stop_btn.state(["!disabled"] if v["stop_enabled"] else ["disabled"])
 
     def refresh(self) -> None:
@@ -121,7 +148,7 @@ def launch_gui(controller: Controller | None = None) -> int:
     except ImportError:
         print(
             "Tkinter is not available in this Python installation. Reinstall Python with the 'tcl/tk' option "
-            "or use the CLI: python -m app.main run --minutes 30"
+            "or use the CLI: python -m app.main self-improve --minutes 30"
         )
         return 2
     controller = controller or Controller()
