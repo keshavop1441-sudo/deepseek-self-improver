@@ -28,7 +28,7 @@ def build_report(session: dict, state: dict, benchmark_before: dict | None, benc
         "stop_reason": session.get("stop_reason"), "started_at": session["started_at"], "ended_at": session.get("ended_at"),
         "planned_minutes": session["planned_minutes"], "duration_seconds": round(state.get("elapsed", 0.0), 1),
         "attempted": state["attempted"], "verified": state["verified"], "failed": state["failed"],
-        "invalid_tasks": state.get("invalid", 0), "retries": state["retries"],
+        "invalid_tasks": state.get("invalid", 0), "pending_tasks": state.get("pending", 0), "retries": state["retries"],
         "domains": state.get("domains", {}), "failure_categories": state.get("failure_categories", {}),
         "lessons_learned": state["lessons"], "lessons": [
             {"lesson_id": l["lesson_id"], "domain": l["domain"], "failure_pattern": l["failure_pattern"],
@@ -64,6 +64,7 @@ def to_markdown(r: dict[str, Any]) -> str:
          f"- Tasks attempted: **{r['attempted']}**", f"- Independently verified correct: **{r['verified']}**",
          f"- Failed after retries: **{r['failed']}**", f"- Retries used: **{r['retries']}**",
          f"- Tasks with unusable data (not counted against the model): {r['invalid_tasks']}",
+         f"- Tasks cut off by the deadline/stop (pending, neither verified nor failed): {r['pending_tasks']}",
          f"- Lessons learned (verified only): **{r['lessons_learned']}**", "",
          "## Domains", ""]
     m += [f"- {d}: {c['verified']} verified / {c['failed']} failed" for d, c in sorted(r["domains"].items())] or ["_none_"]

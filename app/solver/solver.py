@@ -37,10 +37,12 @@ class SolveOutcome:
     status: str                       # verified | failed | invalid | aborted
     attempts: list[AttemptRecord] = field(default_factory=list)
     lesson_id: int | None = None
+    started: int = 0                  # model calls handed out; > len(attempts) when a call was cut off by the deadline
 
     @property
     def retries(self) -> int:
-        return max(0, len(self.attempts) - 1)
+        """Retries handed to the model (the first call is not a retry), including one aborted mid-call."""
+        return max(0, self.started - 1)
 
     @property
     def final(self) -> AttemptRecord | None:
@@ -86,6 +88,7 @@ class Solver:
                 outcome.status = "aborted"
                 return outcome
             emit("attempt_start", task=task, attempt_no=n)
+            outcome.started += 1
             prompt_text = "\n\n".join(f"[{m['role']}] {m['content']}" for m in messages)
             try:
                 parsed, dur = self.ask(task, messages, should_abort, time_left)

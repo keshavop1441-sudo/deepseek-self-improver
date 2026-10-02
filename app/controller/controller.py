@@ -82,6 +82,7 @@ class SessionState:
     verified: int = 0
     failed: int = 0
     invalid: int = 0
+    pending: int = 0  # handed to the model but cut off by deadline/stop: counted as attempted, not verified/failed
     retries: int = 0
     lessons: int = 0
     current_task: str = ""
@@ -583,9 +584,17 @@ class Controller:
             dom = s.domains.setdefault(task.domain, {"verified": 0, "failed": 0})
             for cat in outcome.failure_categories:
                 s.failure_categories[cat] = s.failure_categories.get(cat, 0) + 1
-            if st != "aborted":
-                s.retries += outcome.retries
-            if st == "verified":
+            s.retries += outcome.retries
+            if st == "aborted":
+                # Invariant: attempted == verified + failed + invalid + pending. A task cut off while its
+                # first model call was still in flight has no recorded attempt, so it is not counted at all.
+                # Once at least one attempt completed and was recorded (and possibly verifier-failed, which
+                # feeds failure_categories above) the task was really attempted; it stays pending because
+                # the deadline stopped it before a final verified/failed verdict.
+                if outcome.attempts:
+                    s.attempted += 1
+                    s.pending += 1
+            elif st == "verified":
                 s.attempted += 1
                 s.verified += 1
                 dom["verified"] += 1
